@@ -1,0 +1,32 @@
+
+*** ChampSim Multicore Out-of-Order Simulator ***
+
+Warmup Instructions: 50000000
+Simulation Instructions: 100000000
+Number of CPUs: 1
+LLC sets: 2048
+LLC ways: 16
+Off-chip DRAM Size: 4096 MB Channels: 1 Width: 64-bit Data Rate: 6400 MT/s
+CPU 0 runs ./traces/GAP/pr-3.trace.gz
+.gz
+CPU 0 Bimodal branch predictor
+BTB has LRU replacement policy
+ITLB has LRU replacement policy
+DTLB has LRU replacement policy
+STLB has LRU replacement policy
+L1I has LRU replacement policy
+Ideal ISB Prefetching
+L1D has LRU replacement policy
+L2C has LRU replacement policy
+LLC has LRU replacement policy
+Heartbeat CPU 0 instructions: 10000002 cycles: 3333433 heartbeat IPC: 2.99991 cumulative IPC: 2.99991 (Simulation time: 0 hr 0 min 30 sec) 
+Heartbeat CPU 0 instructions: 20000000 cycles: 10077041 heartbeat IPC: 1.48289 cumulative IPC: 1.98471 (Simulation time: 0 hr 9 min 50 sec) 
+Heartbeat CPU 0 instructions: 30000001 cycles: 17327196 heartbeat IPC: 1.37928 cumulative IPC: 1.73138 (Simulation time: 0 hr 29 min 6 sec) 
+Heartbeat CPU 0 instructions: 40000000 cycles: 24604648 heartbeat IPC: 1.37411 cumulative IPC: 1.62571 (Simulation time: 0 hr 41 min 0 sec) 
+Heartbeat CPU 0 instructions: 50000000 cycles: 31893470 heartbeat IPC: 1.37196 cumulative IPC: 1.56772 (Simulation time: 0 hr 53 min 15 sec) 
+
+Warmup complete CPU 0 instructions: 50000001 cycles: 31893471 (Simulation time: 0 hr 53 min 15 sec) 
+
+Heartbeat CPU 0 instructions: 60000000 cycles: 223493563 heartbeat IPC: 0.052192 cumulative IPC: 0.052192 (Simulation time: 1 hr 11 min 47 sec) 
+Heartbeat CPU 0 instructions: 70000001 cycles: 415718815 heartbeat IPC: 0.0520223 cumulative IPC: 0.052107 (Simulation time: 1 hr 27 min 55 sec) 
+Heartbeat CPU 0 instructions: 80000000 cycles: 608228186 heartbeat IPC: 0.0519455 cumulative IPC: 0.0520531 (Simulation time: 5 hr 39 min 3 sec) 
