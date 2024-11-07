@@ -533,9 +533,9 @@ void CACHE::handle_fill()
                 if (MSHR.entry[mshr_index].late_pref == 1)
                 {
                     int temp_pf_class = (MSHR.entry[mshr_index].pf_metadata & PREF_CLASS_MASK) >> NUM_OF_STRIDE_BITS;
-                    if (temp_pf_class < 5)
+                    if (temp_pf_class < 6)
                     {
-                        pref_late[cpu][((MSHR.entry[mshr_index].pf_metadata & PREF_CLASS_MASK) >> NUM_OF_STRIDE_BITS)]++;
+                        pref_late[cpu][temp_pf_class]++;
                     }
                 }
             }
@@ -1875,10 +1875,13 @@ void CACHE::handle_read()
                     pf_useful++;
 
                     block[set][way].prefetch = 0;
-
+                    int cla = block[set][way].pref_class;
                     // Neelu: IPCP prefetch stats
-                    if (block[set][way].pref_class < 5)
-                        pref_useful[cpu][block[set][way].pref_class]++;
+                    if (cla < 6)
+                    {
+                        
+                        pref_useful[cpu][cla]++;
+                    }
                 }
                 block[set][way].used = 1;
 
@@ -2992,9 +2995,11 @@ void CACHE::fill_cache(uint32_t set, uint32_t way, PACKET *packet)
         // Neelu: IPCP prefetch stats
         if (cache_type == IS_L1D)
         {
-            if (block[set][way].pref_class < 5)
+            int cla = block[set][way].pref_class;
+            if (cla < 6)
             {
-                pref_filled[cpu][block[set][way].pref_class]++;
+                
+                pref_filled[cpu][cla]++;
             }
         }
     }

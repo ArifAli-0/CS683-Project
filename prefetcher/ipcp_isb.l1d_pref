@@ -19,7 +19,6 @@ storage for various hardware tables.
 #include "ooo_cpu.h"
 #include "cache.h"
 #include <vector>
-#define DEGREE 8
 #include <stdio.h>
 #include <map>
 #include <set>
@@ -48,6 +47,8 @@ vice versa in the cache's MSHR as, if the prefetch would've been on time, the de
 #define CS_TYPE 2   // constant stride
 #define CPLX_TYPE 3 // complex stride
 #define NL_TYPE 4   // next line
+#define IA_TYPE 5   // Irregular access
+#define NUM_CLASSES 6
 #define CPLX_DIST 0
 #define NUM_OF_RR_ENTRIES 32      // recent request filter entries
 #define RR_TAG_MASK 0xFFF         // 12 bits of prefetch line address are stored in recent request filter
@@ -220,7 +221,7 @@ struct ISB_prefetcher_t
         return str_addr_B;
     }
 
-    vector<uint64_t> isb_predict(uint64_t trigger_phy_addr, unsigned int trigger_str_addr, uint64_t ip)
+    vector<uint64_t> isb_predict(uint64_t trigger_phy_addr, unsigned int trigger_str_addr, uint64_t ip, uint64_t degree)
     {
 #ifdef DEBUG
         std::cout << "*Trigger Str addr " << trigger_str_addr << std::endl;
@@ -234,7 +235,7 @@ struct ISB_prefetcher_t
         unsigned int ideal = 0;
         for (unsigned int i = 0; i < STREAM_MAX_LENGTH; i++)
         {
-            if (ideal >= DEGREE)
+            if (ideal >= degree)
                 break;
             uint64_t str_addr_candidate = trigger_str_addr + lookahead + i;
             if (str_addr_candidate % STREAM_MAX_LENGTH == 0)
@@ -515,16 +516,16 @@ public:
 */
 
 REGION_STREAM_TABLE rstable[NUM_CPUS][NUM_RST_ENTRIES];
-int acc_filled[NUM_CPUS][5];
-int acc_useful[NUM_CPUS][5];
+int acc_filled[NUM_CPUS][NUM_CLASSES];
+int acc_useful[NUM_CPUS][NUM_CLASSES];
 
-int acc[NUM_CPUS][5];
-int prefetch_degree[NUM_CPUS][5];
+int acc[NUM_CPUS][NUM_CLASSES];
+int prefetch_degree[NUM_CPUS][NUM_CLASSES];
 int num_conflicts = 0;
 int test;
 
 uint64_t eval_buffer[NUM_CPUS][1024] = {};
-STAT_COLLECT stats[NUM_CPUS][5]; // for GS, CS, CPLX, NL and no class
+STAT_COLLECT stats[NUM_CPUS][NUM_CLASSES]; // for GS, CS, CPLX, IA, NL and no class
 IP_TABLE_L1 trackers_l1[NUM_CPUS][NUM_IP_TABLE_L1_ENTRIES];
 CONST_STRIDE_PRED_TABLE CSPT_l1[NUM_CPUS][NUM_CSPT_ENTRIES];
 
@@ -548,7 +549,7 @@ float mpki[NUM_CPUS] = {0};
 int spec_nl[NUM_CPUS] = {0}, flag_nl[NUM_CPUS] = {0};
 uint64_t num_access[NUM_CPUS];
 
-int meta_counter[NUM_CPUS][4] = {0}; // for book-keeping
+int meta_counter[NUM_CPUS][NUM_CLASSES] = {0}; // for book-keeping
 int total_count[NUM_CPUS] = {0};     // for book-keeping
 
 /* update_sig_l1: 7 bit signature is updated by performing a left-shift of 1 bit on the old signature and xoring the outcome with the delta*/
@@ -634,7 +635,7 @@ void stat_col_L1(uint64_t addr, uint8_t cache_hit, uint8_t cpu, uint64_t ip)
     int ip_index = ip & ((1 << NUM_IP_INDEX_BITS) - 1);
     uint16_t ip_tag = (ip >> NUM_IP_INDEX_BITS) & ((1 << NUM_IP_TAG_BITS) - 1);
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < NUM_CLASSES; i++)
     {
         if (cache_hit)
         {
@@ -689,20 +690,20 @@ void CACHE::l1d_prefetcher_initialize()
         prefetch_degree[cpu][1] = 6;
         prefetch_degree[cpu][2] = 3;
         prefetch_degree[cpu][3] = 3;
-        prefetch_degree[cpu][4] = 1;
+        prefetch_degree[cpu][4] = 3;
+        prefetch_degree[cpu][5] = 6;
     }
 }
 
 void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint8_t critical_ip_flag)
 {
-    if (type != LOAD)
+    if (type != LOAD || cache_hit)
         return;
 
-    if (cache_hit)
-        return;
     uint64_t curr_page = hash_page(addr >> LOG2_PAGE_SIZE);  // current page
     uint64_t line_addr = addr >> LOG2_BLOCK_SIZE;            // cache line address
     uint64_t line_offset = (addr >> LOG2_BLOCK_SIZE) & 0x3F; // cache line offset
+    
     uint16_t signature = 0, last_signature = 0;
     int spec_nl_threshold = 0;
     int num_prefs = 0;
@@ -736,7 +737,7 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
     }
 
     // Updating prefetch degree based on accuracy
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < NUM_CLASSES; i++)
     {
         if (pref_filled[cpu][i] % 256 == 0)
         {
@@ -752,7 +753,7 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
             if (acc[cpu][i] > 75)
             {
                 prefetch_degree[cpu][i]++;
-                if (i == 1)
+                if (i == 1 || i == 5)
                 {
                     // For GS class, degree is incremented/decremented by 2.
                     prefetch_degree[cpu][i]++;
@@ -765,7 +766,7 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
             else if (acc[cpu][i] < 40)
             {
                 prefetch_degree[cpu][i]--;
-                if (i == 1)
+                if (i == 1 || i == 5)
                     prefetch_degree[cpu][i]--;
                 if (prefetch_degree[cpu][i] < 1)
                     prefetch_degree[cpu][i] = 1;
@@ -1098,7 +1099,7 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
             { // prefetch only when conf>0 for CPLX
                 bl_index = hash_bloom(pf_address);
                 stats[cpu][CPLX_TYPE].bl_request[bl_index] = 1;
-                trackers_l1[cpu][index].pref_type = 3;
+                trackers_l1[cpu][index].pref_type = CPLX_TYPE;
 #ifdef DO_PREF
                 int found_in_filter = 0;
                 for (int i = 0; i < recent_request_filter.size(); i++)
@@ -1130,19 +1131,42 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
 
     if (str_addr_B_exists && flag == 1)
     {
-        vector<uint64_t> candidates = isb.isb_predict(addr_B, str_addr_B, ip);
+        meta_counter[cpu][4]++;
+        total_count[cpu]++;
+
+        vector<uint64_t> candidates = isb.isb_predict(addr_B, str_addr_B, ip, prefetch_degree[cpu][5]);
         unsigned int num_prefetched = 0;
+        trackers_l1[cpu][index].pref_type = IA_TYPE;
         for (unsigned int i = 0; i < candidates.size(); i++)
         {
-            int ret = prefetch_line(ip, addr, candidates[i], FILL_L1, 0);
-            if (ret == 1)
+            metadata = encode_metadata(0, IA_TYPE, spec_nl[cpu]);
+            bl_index = hash_bloom(candidates[i]);
+            stats[cpu][IA_TYPE].bl_request[bl_index] = 1;
+#ifdef DO_PREF
+            int found_in_filter = 0;
+            for (int j = 0; j < recent_request_filter.size(); j++)
             {
-                predictions++;
-                num_prefetched++;
-                num_prefs++;
+                if (recent_request_filter[j] == ((candidates[i] >> 6) & RR_TAG_MASK))
+                {
+                    // Prefetch address is present in RR filter
+                    found_in_filter = 1;
+                }
             }
-            if (num_prefetched >= DEGREE)
-                break;
+            // Issue prefetch request only if prefetch address is not present in RR filter
+            if (found_in_filter == 0)
+            {
+                
+                int ret = prefetch_line(ip, addr, candidates[i], FILL_L1, metadata);
+                if (ret == 1)
+                {
+                    predictions++;
+                    num_prefetched++;
+                    num_prefs++;
+                }
+                if (num_prefetched >= prefetch_degree[cpu][5])
+                    break;
+            }
+#endif
         }
     }
     else
@@ -1245,7 +1269,7 @@ void CACHE::l1d_prefetcher_final_stats()
 
     uint64_t total_request = 0, total_polluted = 0, total_useful = 0, total_late = 0;
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < NUM_CLASSES; i++)
     {
         total_request += pref_filled[cpu][i];
         total_polluted += stats[cpu][i].polluted_misses;
@@ -1278,6 +1302,15 @@ void CACHE::l1d_prefetcher_final_stats()
     cout << "CPLX:pref_late: " << pref_late[cpu][3] << endl;
     cout << "CPLX:misses: " << stats[cpu][3].misses << endl;
     cout << "CPLX:misses_by_poll: " << stats[cpu][3].polluted_misses << endl;
+    cout << endl;
+
+    cout << "ISB: " << endl;
+    cout << "ISB:times selected:" << meta_counter[cpu][4] << endl;
+    cout << "ISB:pref_filled: " << pref_filled[cpu][5] << endl;
+    cout << "ISB:pref_useful: " << pref_useful[cpu][5] << endl;
+    cout << "ISB:pref_late: " << pref_late[cpu][5] << endl;
+    cout << "ISB:misses: " << stats[cpu][5].misses << endl;
+    cout << "ISB:misses_by_poll: " << stats[cpu][5].polluted_misses << endl;
     cout << endl;
 
     cout << "NL_L1: " << endl;
