@@ -47,7 +47,6 @@ mkdir -p "$output_dir"
 for trace in "$trace_dir"/*.xz; do
     # Extract the trace name (basename without extension)
     trace_name=$(basename "$trace" .champsimtrace.xz)
-    
     # Run the executable on the trace and redirect output to the log file
     ./$exec_dir/$executable -warmup_instructions 50000000 -simulation_instructions 50000000 -traces "$trace" > "$output_dir/${trace_name}-$1.log"
     
