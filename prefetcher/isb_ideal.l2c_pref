@@ -130,7 +130,7 @@ struct ISB_prefetcher_t
 
         if (phy_addr_Aplus1_exists)
             stream_divergence_count++;
-// #define CFIX
+#define CFIX
 #ifdef CFIX
         while (phy_addr_Aplus1_exists)
         {
