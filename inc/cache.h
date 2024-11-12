@@ -160,6 +160,8 @@ public:
         instr_evicting_instr,
         transl_evicting_transl;
 
+    // uint64_t l1d_demand_miss_total;
+
     uint64_t pref_useful[NUM_CPUS][6],
         pref_filled[NUM_CPUS][6],
         pref_late[NUM_CPUS][6];
@@ -269,6 +271,8 @@ public:
         data_evicting_data = 0;
         instr_evicting_instr = 0;
         transl_evicting_transl = 0;
+
+        // l1d_demand_miss_total = 0;
 
         for (int i = 0; i < NUM_CPUS; i++)
         {

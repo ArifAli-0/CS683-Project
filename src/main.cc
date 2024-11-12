@@ -466,6 +466,7 @@ void reset_cache_stats(uint32_t cpu, CACHE *cache)
     cache->data_evicting_data = 0;
     cache->instr_evicting_instr = 0;
     cache->transl_evicting_transl = 0;
+    // cache->l1d_demand_miss_total = 0;
 
     cache->PQ.ACCESS = 0;
     cache->PQ.MERGED = 0;

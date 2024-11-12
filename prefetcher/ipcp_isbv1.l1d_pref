@@ -1319,6 +1319,7 @@ void CACHE::l1d_prefetcher_final_stats()
     cout << "NL:misses_by_poll: " << stats[cpu][4].polluted_misses << endl;
     cout << endl;
 
+    cout << "Coverage: " << (100.0* pf_useful) / (pf_useful + sim_miss[cpu][LOAD]) << endl;
     cout << "total selections: " << total_count[cpu] << endl;
     cout << "total_filled: " << pf_fill << endl;
     cout << "total_useful: " << pf_useful << endl;

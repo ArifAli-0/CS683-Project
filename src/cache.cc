@@ -530,6 +530,10 @@ void CACHE::handle_fill()
             // Neelu: IPCP stats collection
             if (cache_type == IS_L1D)
             {
+                // if (MSHR.entry[mshr_index].type == 0) // Counting load misses
+                // {
+                //     l1d_demand_miss_total++;
+                // }
                 if (MSHR.entry[mshr_index].late_pref == 1)
                 {
                     int temp_pf_class = (MSHR.entry[mshr_index].pf_metadata & PREF_CLASS_MASK) >> NUM_OF_STRIDE_BITS;
@@ -1879,7 +1883,7 @@ void CACHE::handle_read()
                     // Neelu: IPCP prefetch stats
                     if (cla < 6)
                     {
-                        
+
                         pref_useful[cpu][cla]++;
                     }
                 }
@@ -2998,7 +3002,7 @@ void CACHE::fill_cache(uint32_t set, uint32_t way, PACKET *packet)
             int cla = block[set][way].pref_class;
             if (cla < 6)
             {
-                
+
                 pref_filled[cpu][cla]++;
             }
         }
