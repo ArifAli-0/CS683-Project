@@ -62,7 +62,7 @@ unsigned int predictions;         // # predictions for prefetch made by ISB
 unsigned int no_prediction;       // # address with no prior structural address
 unsigned int stream_end;          // # prefetch candidate address is at stream boundary
 unsigned int no_translation;      // # given structural address has no physical address mapping
-
+uint64_t str_addr_exists;
 uint64_t canary = 0;
 uint64_t last_address; // last address seen by ISB
 
@@ -102,6 +102,8 @@ struct PrefetchBuffer
 
 struct ISB_prefetcher_t
 {
+    // std::vector<pair<uint64_t, uint>> str_addr_groups;
+
     TUCache training_unit;
 
     OffChipInfo oci;
@@ -115,7 +117,7 @@ struct ISB_prefetcher_t
     uint64_t candidate_diff;
     PrefetchBuffer prefetch_buffer;
 
-    unsigned int isb_train(unsigned int str_addr_A, uint64_t phy_addr_B)
+    unsigned int isb_train(uint64_t key, unsigned int str_addr_A, uint64_t phy_addr_B)
     {
         // Algorithm for training correlated pair (A,B)
         // Step 2a : If SA(A)+1 does not exist, assign B SA(A)+1
@@ -131,7 +133,7 @@ struct ISB_prefetcher_t
         {
             if (!str_addr_B_exists)
             {
-                str_addr_B = assign_structural_addr();
+                str_addr_B = assign_structural_addr(key);
                 oci.update(phy_addr_B, str_addr_B);
             }
             return str_addr_B;
@@ -206,7 +208,7 @@ struct ISB_prefetcher_t
             if (invalidated)
                 return str_addr_B;
             else
-                str_addr_B = assign_structural_addr();
+                str_addr_B = assign_structural_addr(key);
         }
         else
             str_addr_B = str_addr_A + 1;
@@ -339,14 +341,45 @@ public:
         return oci.get_structural_address(addr, str_addr);
     }
 
-    unsigned int assign_structural_addr()
+    unsigned int assign_structural_addr(uint64_t key)
     {
         alloc_counter += STREAM_MAX_LENGTH;
 #ifdef DEBUG
         std::cout << "  ALLOC " << alloc_counter << std::endl;
 #endif
+        // str_addr_groups.push_back(make_pair(key, (unsigned int)alloc_counter));
         return ((unsigned int)alloc_counter);
     }
+
+    // void probe_pattern(uint64_t key, uint64_t str_addr)
+    // {
+    //     uint64_t candidate_phy_addr;
+    //     for (unsigned int i = 0; i < STREAM_MAX_LENGTH; i++)
+    //     {
+    //         uint64_t str_addr_candidate = str_addr + i;
+    //         bool ret = oci.get_physical_address(candidate_phy_addr, str_addr_candidate);
+    //         if (ret)
+    //         {
+    //             cout << "Key (PC):" << std::hex << key << " ";
+    //             cout << "Structural address: " << std::hex << str_addr_candidate << " ";
+    //             cout << "Physical address: " << std::hex << candidate_phy_addr << "\n";
+    //         }
+    //     }
+    // }
+    // void print_table()
+    // {
+    //     cout << "Structural address groups allotted:\n";
+    //     for (const auto &key_addr : str_addr_groups)
+    //     {
+    //         // cout << "Key (PC):" << std::hex << key_addr.first << " starting str addr: "<< std::hex << key_addr.second << "\n";
+    //         probe_pattern(key_addr.first, key_addr.second);
+    //     }
+    //     cout << "\n";
+    //     for (const auto &pair : training_unit)
+    //     {
+    //         std::cout << "Key (PC): " << hex << pair.first << ", Lastseen structural address: " << hex << pair.second->str_addr << '\n';
+    //     }
+    // }
 };
 
 ISB_prefetcher_t isb;
@@ -527,6 +560,9 @@ public:
         str_dir = 0;
         str_valid = 0;
         pref_type = 0;
+
+        last_addr = 0;
+        last_str_addr = 0;
     };
 };
 
@@ -821,6 +857,7 @@ void stat_col_L1(uint64_t addr, uint8_t cache_hit, uint8_t cpu, uint64_t ip)
     }
 }
 
+uint64_t A, B, C, D, E, F, G;
 void CACHE::l1d_prefetcher_initialize()
 {
     for (int i = 0; i < NUM_RST_ENTRIES; i++)
@@ -832,26 +869,20 @@ void CACHE::l1d_prefetcher_initialize()
         prefetch_degree[cpu][2] = 3;
         prefetch_degree[cpu][3] = 3;
         prefetch_degree[cpu][4] = 1;
-        prefetch_degree[cpu][5] = 6;
+        prefetch_degree[cpu][5] = 8;
     }
+    str_addr_exists = 0;
 }
-uint64_t access_cnt = 0;
-uint64_t load_ip = 0;
-uint64_t cache_miss = 0;
-uint64_t second_time_ip = 0;
-uint64_t current_not_equals_last_address = 0;
-uint64_t non_zero_stride = 0;
-uint64_t access_TU = 0;
-uint64_t end_c = 0;
+
 void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit, uint8_t type, uint8_t critical_ip_flag)
 {
-    access_cnt++;
-    if (type != LOAD)
-        return;
-    load_ip++;
-    if (cache_hit)
-        return;
-    cache_miss++;
+    A++;
+    // if (type != LOAD)
+    //     return;
+
+    // if (cache_hit)
+    //     return;
+
     uint64_t curr_page = hash_page(addr >> LOG2_PAGE_SIZE);  // current page
     uint64_t line_addr = addr >> LOG2_BLOCK_SIZE;            // cache line address
     uint64_t line_offset = (addr >> LOG2_BLOCK_SIZE) & 0x3F; // cache line offset
@@ -942,20 +973,21 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
             trackers_l1[cpu][index].str_dir = 0;
             trackers_l1[cpu][index].pref_type = 0;
             trackers_l1[cpu][index].ip_valid = 1;
+            trackers_l1[cpu][index].last_addr = 0;
+            trackers_l1[cpu][index].last_str_addr = 0;
         }
         else
         { // otherwise, reset valid bit and leave the previous IP as it is
             trackers_l1[cpu][index].ip_valid = 0;
         }
-
-        return;
+        G++;
+        // return;
     }
     else
     { // if same IP encountered, set valid bit
         trackers_l1[cpu][index].ip_valid = 1;
     }
-    second_time_ip++;
-
+    // B++;
     // calculate the stride between the current cache line offset and the last cache line offset
     int64_t stride = 0;
     if (line_offset > trackers_l1[cpu][index].last_line_offset)
@@ -966,317 +998,233 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
         stride *= -1;
     }
 
-    // if (!cache_hit)
-    // {
-    uint64_t addr_B = (addr >> 6) << 6;
-    uint64_t key = ip;
-
-    if (addr_B == last_address)
-        return;
-    current_not_equals_last_address++;
-    last_address = addr_B;
-
-    total_access++;
-
-#ifdef DEBUG
-    std::cout << "**Trigger " << std::hex << addr_B << " with key " << std::hex << key << std::endl;
-#endif
-
-    unsigned int str_addr_B = 0;
-    bool str_addr_B_exists = isb.oci.get_structural_address(addr_B, str_addr_B);
-
-    // }
-
     // don't do anything if same address is seen twice in a row
-    if (stride == 0)
-        return;
-    non_zero_stride++;
+    // if (stride == 0)
+    //     return;
+    B++;
+    // F++;
     int c = 0, flag = 0;
     bool gs_selected = false, cs_selected = false, cplx_selected = false;
-
-    // Checking if IP is already classified as a part of the GS class, so that for the new region we will set the tentative (spec_dense) bit.
-    for (int i = 0; i < NUM_RST_ENTRIES; i++)
+    if (trackers_l1[cpu][index].ip_tag == ip_tag && stride != 0)
     {
-        if (rstable[cpu][i].region_id == ((trackers_l1[cpu][index].last_vpage << 1) | (trackers_l1[cpu][index].last_line_offset >> 5)))
+        // Checking if IP is already classified as a part of the GS class, so that for the new region we will set the tentative (spec_dense) bit.
+        for (int i = 0; i < NUM_RST_ENTRIES; i++)
         {
-            if (rstable[cpu][i].trained_dense == 1)
-                flag = 1;
-            break;
+            if (rstable[cpu][i].region_id == ((trackers_l1[cpu][index].last_vpage << 1) | (trackers_l1[cpu][index].last_line_offset >> 5)))
+            {
+                if (rstable[cpu][i].trained_dense == 1)
+                    flag = 1;
+                break;
+            }
         }
-    }
-    for (c = 0; c < NUM_RST_ENTRIES; c++)
-    {
-        if (((curr_page << 1) | (line_offset >> 5)) == rstable[cpu][c].region_id)
+        for (c = 0; c < NUM_RST_ENTRIES; c++)
         {
-            if (rstable[cpu][c].line_access[line_offset & REGION_OFFSET_MASK] == 0)
+            if (((curr_page << 1) | (line_offset >> 5)) == rstable[cpu][c].region_id)
             {
-                rstable[cpu][c].line_access[line_offset & REGION_OFFSET_MASK] = 1;
-            }
-
-            if (rstable[cpu][c].pos_neg_count >= MAX_POS_NEG_COUNT || rstable[cpu][c].pos_neg_count <= 0)
-            {
-                rstable[cpu][c].pos_neg_count = MAX_POS_NEG_COUNT / 2;
-            }
-
-            if (stride > 0)
-                rstable[cpu][c].pos_neg_count++;
-            else
-                rstable[cpu][c].pos_neg_count--;
-
-            if (rstable[cpu][c].trained_dense == 0)
-            {
-                int count = 0;
-                for (int i = 0; i < NUM_OF_LINES_IN_REGION; i++)
-                    if (rstable[cpu][c].line_access[line_offset & REGION_OFFSET_MASK] == 1)
-                        count++;
-
-                if (count > 24) // 75% of the cache lines in the region are accessed.
+                if (rstable[cpu][c].line_access[line_offset & REGION_OFFSET_MASK] == 0)
                 {
-                    rstable[cpu][c].trained_dense = 1;
+                    rstable[cpu][c].line_access[line_offset & REGION_OFFSET_MASK] = 1;
                 }
+
+                if (rstable[cpu][c].pos_neg_count >= MAX_POS_NEG_COUNT || rstable[cpu][c].pos_neg_count <= 0)
+                {
+                    rstable[cpu][c].pos_neg_count = MAX_POS_NEG_COUNT / 2;
+                }
+
+                if (stride > 0)
+                    rstable[cpu][c].pos_neg_count++;
+                else
+                    rstable[cpu][c].pos_neg_count--;
+
+                if (rstable[cpu][c].trained_dense == 0)
+                {
+                    int count = 0;
+                    for (int i = 0; i < NUM_OF_LINES_IN_REGION; i++)
+                        if (rstable[cpu][c].line_access[line_offset & REGION_OFFSET_MASK] == 1)
+                            count++;
+
+                    if (count > 24) // 75% of the cache lines in the region are accessed.
+                    {
+                        rstable[cpu][c].trained_dense = 1;
+                    }
+                }
+                if (flag == 1)
+                    rstable[cpu][c].tentative_dense = 1;
+                if (rstable[cpu][c].tentative_dense == 1 || rstable[cpu][c].trained_dense == 1)
+                {
+                    if (rstable[cpu][c].pos_neg_count > (MAX_POS_NEG_COUNT / 2))
+                        rstable[cpu][c].dir = 1; // 1 for positive direction
+                    else
+                        rstable[cpu][c].dir = 0; // 0 for negative direction
+                    trackers_l1[cpu][index].str_valid = 1;
+
+                    trackers_l1[cpu][index].str_dir = rstable[cpu][c].dir;
+                }
+                else
+                    trackers_l1[cpu][index].str_valid = 0;
+
+                break;
+            }
+        }
+        // curr page has no entry in rstable. Then replace lru.
+        if (c == NUM_RST_ENTRIES)
+        {
+            // check lru
+            for (c = 0; c < NUM_RST_ENTRIES; c++)
+            {
+                if (rstable[cpu][c].lru == (NUM_RST_ENTRIES - 1))
+                    break;
+            }
+            for (int i = 0; i < NUM_RST_ENTRIES; i++)
+            {
+                if (rstable[cpu][i].lru < rstable[cpu][c].lru)
+                    rstable[cpu][i].lru++;
             }
             if (flag == 1)
                 rstable[cpu][c].tentative_dense = 1;
-            if (rstable[cpu][c].tentative_dense == 1 || rstable[cpu][c].trained_dense == 1)
+            else
+                rstable[cpu][c].tentative_dense = 0;
+
+            rstable[cpu][c].region_id = (curr_page << 1) | (line_offset >> 5);
+            rstable[cpu][c].trained_dense = 0;
+            rstable[cpu][c].pos_neg_count = MAX_POS_NEG_COUNT / 2;
+            rstable[cpu][c].dir = 0;
+            rstable[cpu][c].lru = 0;
+            for (int i = 0; i < NUM_OF_LINES_IN_REGION; i++)
+                rstable[cpu][c].line_access[i] = 0;
+        }
+
+        // page boundary learning
+        if (curr_page != trackers_l1[cpu][index].last_vpage)
+        {
+            // test++;
+            if (stride < 0)
+                stride += NUM_OF_LINES_IN_REGION;
+            else
+                stride -= NUM_OF_LINES_IN_REGION;
+        }
+
+        // update constant stride(CS) confidence
+        trackers_l1[cpu][index].conf = update_conf(stride, trackers_l1[cpu][index].last_stride, trackers_l1[cpu][index].conf);
+
+        // update CS only if confidence is zero
+        if (trackers_l1[cpu][index].conf == 0)
+            trackers_l1[cpu][index].last_stride = stride;
+
+        last_signature = trackers_l1[cpu][index].signature;
+        // update complex stride(CPLX) confidence
+        CSPT_l1[cpu][last_signature].conf = update_conf(stride, CSPT_l1[cpu][last_signature].stride, CSPT_l1[cpu][last_signature].conf);
+
+        // update CPLX only if confidence is zero
+        if (CSPT_l1[cpu][last_signature].conf == 0)
+            CSPT_l1[cpu][last_signature].stride = stride;
+
+        // calculate and update new signature in IP table
+        signature = update_sig_l1(last_signature, stride);
+        trackers_l1[cpu][index].signature = signature;
+
+        SIG_DP(
+            cout << ip << ", " << cache_hit << ", " << line_addr << ", " << addr << ", " << stride << "; ";
+            cout << last_signature << ", " << CSPT_l1[cpu][last_signature].stride << ", " << CSPT_l1[cpu][last_signature].conf << "; ";
+            cout << trackers_l1[cpu][index].last_stride << ", " << stride << ", " << trackers_l1[cpu][index].conf << ", " << "; ";);
+        C++;
+        // cout << "IP: " << ip << " ";
+        if (trackers_l1[cpu][index].str_valid == 1)
+        { // stream IP
+            // for stream, prefetch with twice the usual degree
+            if (prefetch_degree[cpu][1] < 3)
+                flag = 1;
+            meta_counter[cpu][0]++;
+            total_count[cpu]++;
+            for (int i = 0; i < prefetch_degree[cpu][1]; i++)
             {
-                if (rstable[cpu][c].pos_neg_count > (MAX_POS_NEG_COUNT / 2))
-                    rstable[cpu][c].dir = 1; // 1 for positive direction
+                uint64_t pf_address = 0;
+
+                if (trackers_l1[cpu][index].str_dir == 1)
+                { // +ve stream
+                    pf_address = (line_addr + i + 1) << LOG2_BLOCK_SIZE;
+                    metadata = encode_metadata(1, S_TYPE, spec_nl[cpu]); // stride is 1
+                }
                 else
-                    rstable[cpu][c].dir = 0; // 0 for negative direction
-                trackers_l1[cpu][index].str_valid = 1;
+                { // -ve stream
+                    pf_address = (line_addr - i - 1) << LOG2_BLOCK_SIZE;
+                    metadata = encode_metadata(-1, S_TYPE, spec_nl[cpu]); // stride is -1
+                }
 
-                trackers_l1[cpu][index].str_dir = rstable[cpu][c].dir;
-            }
-            else
-                trackers_l1[cpu][index].str_valid = 0;
-
-            break;
-        }
-    }
-    // curr page has no entry in rstable. Then replace lru.
-    if (c == NUM_RST_ENTRIES)
-    {
-        // check lru
-        for (c = 0; c < NUM_RST_ENTRIES; c++)
-        {
-            if (rstable[cpu][c].lru == (NUM_RST_ENTRIES - 1))
-                break;
-        }
-        for (int i = 0; i < NUM_RST_ENTRIES; i++)
-        {
-            if (rstable[cpu][i].lru < rstable[cpu][c].lru)
-                rstable[cpu][i].lru++;
-        }
-        if (flag == 1)
-            rstable[cpu][c].tentative_dense = 1;
-        else
-            rstable[cpu][c].tentative_dense = 0;
-
-        rstable[cpu][c].region_id = (curr_page << 1) | (line_offset >> 5);
-        rstable[cpu][c].trained_dense = 0;
-        rstable[cpu][c].pos_neg_count = MAX_POS_NEG_COUNT / 2;
-        rstable[cpu][c].dir = 0;
-        rstable[cpu][c].lru = 0;
-        for (int i = 0; i < NUM_OF_LINES_IN_REGION; i++)
-            rstable[cpu][c].line_access[i] = 0;
-    }
-
-    // page boundary learning
-    if (curr_page != trackers_l1[cpu][index].last_vpage)
-    {
-        test++;
-        if (stride < 0)
-            stride += NUM_OF_LINES_IN_REGION;
-        else
-            stride -= NUM_OF_LINES_IN_REGION;
-    }
-
-    // update constant stride(CS) confidence
-    trackers_l1[cpu][index].conf = update_conf(stride, trackers_l1[cpu][index].last_stride, trackers_l1[cpu][index].conf);
-
-    // update CS only if confidence is zero
-    if (trackers_l1[cpu][index].conf == 0)
-        trackers_l1[cpu][index].last_stride = stride;
-
-    last_signature = trackers_l1[cpu][index].signature;
-    // update complex stride(CPLX) confidence
-    CSPT_l1[cpu][last_signature].conf = update_conf(stride, CSPT_l1[cpu][last_signature].stride, CSPT_l1[cpu][last_signature].conf);
-
-    // update CPLX only if confidence is zero
-    if (CSPT_l1[cpu][last_signature].conf == 0)
-        CSPT_l1[cpu][last_signature].stride = stride;
-
-    // calculate and update new signature in IP table
-    signature = update_sig_l1(last_signature, stride);
-    trackers_l1[cpu][index].signature = signature;
-
-    SIG_DP(
-        cout << ip << ", " << cache_hit << ", " << line_addr << ", " << addr << ", " << stride << "; ";
-        cout << last_signature << ", " << CSPT_l1[cpu][last_signature].stride << ", " << CSPT_l1[cpu][last_signature].conf << "; ";
-        cout << trackers_l1[cpu][index].last_stride << ", " << stride << ", " << trackers_l1[cpu][index].conf << ", " << "; ";);
-
-    // cout << "IP: " << ip << " ";
-    if (trackers_l1[cpu][index].str_valid == 1)
-    { // stream IP
-        // for stream, prefetch with twice the usual degree
-        if (prefetch_degree[cpu][1] < 3)
-            flag = 1;
-        meta_counter[cpu][0]++;
-        total_count[cpu]++;
-        for (int i = 0; i < prefetch_degree[cpu][1]; i++)
-        {
-            uint64_t pf_address = 0;
-
-            if (trackers_l1[cpu][index].str_dir == 1)
-            { // +ve stream
-                pf_address = (line_addr + i + 1) << LOG2_BLOCK_SIZE;
-                metadata = encode_metadata(1, S_TYPE, spec_nl[cpu]); // stride is 1
-            }
-            else
-            { // -ve stream
-                pf_address = (line_addr - i - 1) << LOG2_BLOCK_SIZE;
-                metadata = encode_metadata(-1, S_TYPE, spec_nl[cpu]); // stride is -1
-            }
-
-            if (acc[cpu][1] < 75)
-                metadata = encode_metadata(0, S_TYPE, spec_nl[cpu]);
-            // Check if prefetch address is in same 4 KB page
-            if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
-            {
-                break;
-            }
-
-            trackers_l1[cpu][index].pref_type = S_TYPE;
-
-#ifdef DO_PREF
-            int found_in_filter = 0;
-            stats[cpu][S_TYPE].prefetch_reqs++;
-            for (int i = 0; i < recent_request_filter.size(); i++)
-            {
-                if (recent_request_filter[i] == ((pf_address >> 6) & RR_TAG_MASK))
+                if (acc[cpu][1] < 75)
+                    metadata = encode_metadata(0, S_TYPE, spec_nl[cpu]);
+                // Check if prefetch address is in same 4 KB page
+                if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
                 {
-                    // Prefetch address is present in RR filter
-                    found_in_filter = 1;
                     break;
                 }
-            }
-            // Issue prefetch request only if prefetch address is not present in RR filter
-            if (found_in_filter == 0)
-            {
-                prefetch_line(ip, addr, pf_address, FILL_L1, metadata);
 
-                // Add to RR filter
-                recent_request_filter.push_back((pf_address >> 6) & RR_TAG_MASK);
-                if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
-                    recent_request_filter.erase(recent_request_filter.begin());
-            }
-            else
-            {
-                stats[cpu][S_TYPE].reqs_filtered_out++;
-            }
-#endif
-            num_prefs++;
-            SIG_DP(cout << "1, ");
-        }
-        gs_selected = true;
-        // cout << " stream selected. Flag: " << flag << endl;
-    }
-    else
-        flag = 1;
+                trackers_l1[cpu][index].pref_type = S_TYPE;
 
-    if (trackers_l1[cpu][index].conf > 1 && trackers_l1[cpu][index].last_stride != 0 && flag == 1)
-    { // CS IP
-        meta_counter[cpu][1]++;
-        total_count[cpu]++;
-
-        if (prefetch_degree[cpu][2] < 2)
-            flag = 1;
-        else
-            flag = 0;
-
-        for (int i = 0; i < prefetch_degree[cpu][2]; i++)
-        {
-            uint64_t pf_address = (line_addr + (trackers_l1[cpu][index].last_stride * (i + 1))) << LOG2_BLOCK_SIZE;
-            stats[cpu][CS_TYPE].prefetch_reqs++;
-            // Check if prefetch address is in same 4 KB page
-            if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
-            {
-                break;
-            }
-
-            trackers_l1[cpu][index].pref_type = CS_TYPE;
-            bl_index = hash_bloom(pf_address);
-            stats[cpu][CS_TYPE].bl_request[bl_index] = 1;
-            if (acc[cpu][2] > 75)
-                metadata = encode_metadata(trackers_l1[cpu][index].last_stride, CS_TYPE, spec_nl[cpu]);
-            else
-                metadata = encode_metadata(0, CS_TYPE, spec_nl[cpu]);
-// if(spec_nl[cpu] == 1)
 #ifdef DO_PREF
-            int found_in_filter = 0;
-            for (int i = 0; i < recent_request_filter.size(); i++)
-            {
-                if (recent_request_filter[i] == ((pf_address >> 6) & RR_TAG_MASK))
+                int found_in_filter = 0;
+                stats[cpu][S_TYPE].prefetch_reqs++;
+                for (int i = 0; i < recent_request_filter.size(); i++)
                 {
-                    // Prefetch address is present in RR filter
-                    found_in_filter = 1;
+                    if (recent_request_filter[i] == ((pf_address >> 6) & RR_TAG_MASK))
+                    {
+                        // Prefetch address is present in RR filter
+                        found_in_filter = 1;
+                        break;
+                    }
                 }
-            }
-            // Issue prefetch request only if prefetch address is not present in RR filter
-            if (found_in_filter == 0)
-            {
-                prefetch_line(ip, addr, pf_address, FILL_L1, metadata);
-                // Add to RR filter
-                recent_request_filter.push_back((pf_address >> 6) & RR_TAG_MASK);
-                if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
-                    recent_request_filter.erase(recent_request_filter.begin());
-            }
-            else
-            {
-                stats[cpu][CS_TYPE].reqs_filtered_out++;
-            }
+                // Issue prefetch request only if prefetch address is not present in RR filter
+                if (found_in_filter == 0)
+                {
+                    prefetch_line(ip, addr, pf_address, FILL_L1, metadata);
+
+                    // Add to RR filter
+                    recent_request_filter.push_back((pf_address >> 6) & RR_TAG_MASK);
+                    if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
+                        recent_request_filter.erase(recent_request_filter.begin());
+                }
+                else
+                {
+                    stats[cpu][S_TYPE].reqs_filtered_out++;
+                }
 #endif
-            num_prefs++;
-            SIG_DP(cout << trackers_l1[cpu][index].last_stride << ", ");
-        }
-        cs_selected = true;
-        // cout << " ip stride selected. Flag: " << flag << endl;
-    }
-    else
-        flag = 1;
-
-    if (CSPT_l1[cpu][signature].conf >= 0 && CSPT_l1[cpu][signature].stride != 0 && flag == 1)
-    {                               // if conf>=0, continue looking for stride
-        int pref_offset = 0, i = 0; // CPLX IP
-        meta_counter[cpu][2]++;
-        total_count[cpu]++;
-        if (prefetch_degree[cpu][3] < 2)
-            flag = 1;
-        else
-            flag = 0;
-
-        for (i = 0; i < prefetch_degree[cpu][3] + CPLX_DIST; i++)
-        {
-            pref_offset += CSPT_l1[cpu][signature].stride;
-            uint64_t pf_address = ((line_addr + pref_offset) << LOG2_BLOCK_SIZE);
-
-            // Check if prefetch address is in same 4 KB page
-            if (((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE)) ||
-                (CSPT_l1[cpu][signature].conf == -1) ||
-                (CSPT_l1[cpu][signature].stride == 0))
-            {
-                // if new entry in CSPT or stride is zero, break
-                break;
+                num_prefs++;
+                SIG_DP(cout << "1, ");
             }
+            gs_selected = true;
+            // cout << " stream selected. Flag: " << flag << endl;
+        }
+        else
+            flag = 1;
+        D++;
+        if (trackers_l1[cpu][index].conf > 1 && trackers_l1[cpu][index].last_stride != 0 && flag == 1)
+        { // CS IP
+            meta_counter[cpu][1]++;
+            total_count[cpu]++;
 
-            // we are not prefetching at L2 for CPLX type, so encode stride as 0
-            trackers_l1[cpu][index].pref_type = CPLX_TYPE;
-            metadata = encode_metadata(0, CPLX_TYPE, spec_nl[cpu]);
-            if (CSPT_l1[cpu][signature].conf > 0 && i >= CPLX_DIST)
-            { // prefetch only when conf>0 for CPLX
+            if (prefetch_degree[cpu][2] < 2)
+                flag = 1;
+            else
+                flag = 0;
+
+            for (int i = 0; i < prefetch_degree[cpu][2]; i++)
+            {
+                uint64_t pf_address = (line_addr + (trackers_l1[cpu][index].last_stride * (i + 1))) << LOG2_BLOCK_SIZE;
+                stats[cpu][CS_TYPE].prefetch_reqs++;
+                // Check if prefetch address is in same 4 KB page
+                if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
+                {
+                    break;
+                }
+
+                trackers_l1[cpu][index].pref_type = CS_TYPE;
                 bl_index = hash_bloom(pf_address);
-                stats[cpu][CPLX_TYPE].bl_request[bl_index] = 1;
-                trackers_l1[cpu][index].pref_type = 3;
+                stats[cpu][CS_TYPE].bl_request[bl_index] = 1;
+                if (acc[cpu][2] > 75)
+                    metadata = encode_metadata(trackers_l1[cpu][index].last_stride, CS_TYPE, spec_nl[cpu]);
+                else
+                    metadata = encode_metadata(0, CS_TYPE, spec_nl[cpu]);
+// if(spec_nl[cpu] == 1)
 #ifdef DO_PREF
                 int found_in_filter = 0;
                 for (int i = 0; i < recent_request_filter.size(); i++)
@@ -1285,9 +1233,9 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
                     {
                         // Prefetch address is present in RR filter
                         found_in_filter = 1;
+                        break;
                     }
                 }
-                stats[cpu][CPLX_TYPE].prefetch_reqs++;
                 // Issue prefetch request only if prefetch address is not present in RR filter
                 if (found_in_filter == 0)
                 {
@@ -1299,170 +1247,268 @@ void CACHE::l1d_prefetcher_operate(uint64_t addr, uint64_t ip, uint8_t cache_hit
                 }
                 else
                 {
-                    stats[cpu][CPLX_TYPE].reqs_filtered_out++;
+                    stats[cpu][CS_TYPE].reqs_filtered_out++;
                 }
 #endif
                 num_prefs++;
-                SIG_DP(cout << pref_offset << ", ");
+                SIG_DP(cout << trackers_l1[cpu][index].last_stride << ", ");
             }
-            signature = update_sig_l1(signature, CSPT_l1[cpu][signature].stride);
+            cs_selected = true;
+            // cout << " ip stride selected. Flag: " << flag << endl;
         }
-        cplx_selected = true;
-        // cout << " complex stride selected. Flag: " << flag << endl;
-    }
-    else
-        flag = 1;
-
-    if (str_addr_B_exists)
-    {
-
-        // if (gs_selected)
-        // {
-        meta_counter[cpu][4]++;
-        canary++;
-        // cout << "IP: " << ip << " Addr: " << addr_B << "\n";
-        total_count[cpu]++;
-        uint num_prefetched = 0; // local count of number of prefetches made
-        // if (prefetch_degree[cpu][5] > 3)
-        // {
-        //     prefetch_degree[cpu][5] = 3;
-        // }
-
-        vector<uint64_t> candidates = isb.isb_predict(addr_B, str_addr_B, ip, prefetch_degree[cpu][5]);
-
-        trackers_l1[cpu][index].pref_type = IA_TYPE;
-        for (unsigned int i = 0; i < candidates.size(); i++)
-        {
-            metadata = encode_metadata(0, IA_TYPE, spec_nl[cpu]);
-            bl_index = hash_bloom(candidates[i]);
-            stats[cpu][IA_TYPE].bl_request[bl_index] = 1;
-#ifdef DO_PREF
-            int found_in_filter = 0;
-            for (int j = 0; j < recent_request_filter.size(); j++)
-            {
-                if (recent_request_filter[j] == ((candidates[i] >> 6) & RR_TAG_MASK))
-                {
-                    // Prefetch address is present in RR filter
-                    found_in_filter = 1;
-                }
-            }
-            stats[cpu][IA_TYPE].prefetch_reqs++;
-            // Issue prefetch request only if prefetch address is not present in RR filter
-            if (found_in_filter == 0)
-            {
-                // auto conf = isb.oci.get_confidence(candidates[i]);
-                // if (conf == 3)
-                // {
-                int ret = prefetch_line(ip, addr, candidates[i], FILL_L1, metadata);
-                if (ret == 1)
-                {
-                    predictions++;
-                    num_prefetched++;
-                    num_prefs++;
-                }
-                recent_request_filter.push_back((candidates[i] >> 6) & RR_TAG_MASK);
-                if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
-                    recent_request_filter.erase(recent_request_filter.begin());
-
-                if (num_prefetched >= prefetch_degree[cpu][5])
-                    break;
-                // }
-            }
-            else
-            {
-                stats[cpu][IA_TYPE].reqs_filtered_out++;
-            }
-#endif
-        }
-        // }
-
-        // cout << " isb selected. Flag: " << flag << endl;
-    }
-    else
-        no_prediction++;
-
-    // if (!cache_hit)
-    // {
-    unsigned int str_addr_A;
-    uint64_t addr_A;
-    if (isb.access_training_unit(key, addr_A, str_addr_A, addr_B))
-    {
-        access_TU++;
-#ifdef DEBUG
-        std::cout << "Consider pair " << str_addr_A << " and " << addr_B << " with key as " << key << std::endl;
-#endif
-        if (str_addr_A == 0)
-        { // TBD, when is this condition true? When this is the 2nd access to the pc
-            str_addr_A = isb.assign_structural_addr();
-            isb.oci.update(addr_A, str_addr_A);
-        }
-        str_addr_B = isb.isb_train(str_addr_A, addr_B);
-    }
-
-    isb.update_training_unit(key, addr_B, str_addr_B);
-    // }
-
-    // if no prefetches are issued till now, speculatively issue a next_line prefetch
-    if (num_prefs == 0 && spec_nl[cpu] == 1)
-    {
-        if (flag_nl[cpu] == 0)
-            flag_nl[cpu] = 1;
         else
-        {
-            uint64_t pf_address = ((addr >> LOG2_BLOCK_SIZE) + 1) << LOG2_BLOCK_SIZE;
-            if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
-            {
-                // update the IP table entries and return if NL request is not to the same 4 KB page
-                trackers_l1[cpu][index].last_line_offset = line_offset;
-                trackers_l1[cpu][index].last_vpage = curr_page;
-                return;
-            }
-            bl_index = hash_bloom(pf_address);
-            stats[cpu][NL_TYPE].bl_request[bl_index] = 1;
-            metadata = encode_metadata(1, NL_TYPE, spec_nl[cpu]);
-#ifdef DO_PREF
-            int found_in_filter = 0;
-            stats[cpu][NL_TYPE].prefetch_reqs++;
-            for (int i = 0; i < recent_request_filter.size(); i++)
-            {
-                if (recent_request_filter[i] == ((pf_address >> 6) & RR_TAG_MASK))
-                {
-                    // Prefetch address is present in RR filter
-                    found_in_filter = 1;
-                }
-            }
-            // Issue prefetch request only if prefetch address is not present in RR filter
-            if (found_in_filter == 0)
-            {
-                prefetch_line(ip, addr, pf_address, FILL_L1, metadata);
-                // Add to RR filter
-                recent_request_filter.push_back((pf_address >> 6) & RR_TAG_MASK);
-                if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
-                    recent_request_filter.erase(recent_request_filter.begin());
-            }
-            else
-            {
-                stats[cpu][NL_TYPE].reqs_filtered_out++;
-            }
-#endif
-            trackers_l1[cpu][index].pref_type = NL_TYPE;
-            meta_counter[cpu][3]++;
+            flag = 1;
+        E++;
+        if (CSPT_l1[cpu][signature].conf >= 0 && CSPT_l1[cpu][signature].stride != 0 && flag == 1)
+        {                               // if conf>=0, continue looking for stride
+            int pref_offset = 0, i = 0; // CPLX IP
+            meta_counter[cpu][2]++;
             total_count[cpu]++;
-            SIG_DP(cout << "1, ");
+            if (prefetch_degree[cpu][3] < 2)
+                flag = 1;
+            else
+                flag = 0;
 
-            if (acc[cpu][4] < 40)
-                flag_nl[cpu] = 0;
+            for (i = 0; i < prefetch_degree[cpu][3] + CPLX_DIST; i++)
+            {
+                pref_offset += CSPT_l1[cpu][signature].stride;
+                uint64_t pf_address = ((line_addr + pref_offset) << LOG2_BLOCK_SIZE);
 
-            // cout << " next line selected. Flag: " << flag << endl;
-        } // NL IP
+                // Check if prefetch address is in same 4 KB page
+                if (((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE)) ||
+                    (CSPT_l1[cpu][signature].conf == -1) ||
+                    (CSPT_l1[cpu][signature].stride == 0))
+                {
+                    // if new entry in CSPT or stride is zero, break
+                    break;
+                }
+
+                // we are not prefetching at L2 for CPLX type, so encode stride as 0
+                trackers_l1[cpu][index].pref_type = CPLX_TYPE;
+                metadata = encode_metadata(0, CPLX_TYPE, spec_nl[cpu]);
+                if (CSPT_l1[cpu][signature].conf > 0 && i >= CPLX_DIST)
+                { // prefetch only when conf>0 for CPLX
+                    bl_index = hash_bloom(pf_address);
+                    stats[cpu][CPLX_TYPE].bl_request[bl_index] = 1;
+                    trackers_l1[cpu][index].pref_type = 3;
+#ifdef DO_PREF
+                    int found_in_filter = 0;
+                    for (int i = 0; i < recent_request_filter.size(); i++)
+                    {
+                        if (recent_request_filter[i] == ((pf_address >> 6) & RR_TAG_MASK))
+                        {
+                            // Prefetch address is present in RR filter
+                            found_in_filter = 1;
+                            break;
+                        }
+                    }
+                    stats[cpu][CPLX_TYPE].prefetch_reqs++;
+                    // Issue prefetch request only if prefetch address is not present in RR filter
+                    if (found_in_filter == 0)
+                    {
+                        prefetch_line(ip, addr, pf_address, FILL_L1, metadata);
+                        // Add to RR filter
+                        recent_request_filter.push_back((pf_address >> 6) & RR_TAG_MASK);
+                        if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
+                            recent_request_filter.erase(recent_request_filter.begin());
+                    }
+                    else
+                    {
+                        stats[cpu][CPLX_TYPE].reqs_filtered_out++;
+                    }
+#endif
+                    num_prefs++;
+                    SIG_DP(cout << pref_offset << ", ");
+                }
+                signature = update_sig_l1(signature, CSPT_l1[cpu][signature].stride);
+            }
+            cplx_selected = true;
+            // cout << " complex stride selected. Flag: " << flag << endl;
+        }
+        else
+            flag = 1;
+
+        // update the IP table entries
+        trackers_l1[cpu][index].last_line_offset = line_offset;
+        trackers_l1[cpu][index].last_vpage = curr_page;
     }
 
+    F++;
+    //     uint64_t addr_B = (addr >> 6) << 6;
+    //     uint64_t key = ip;
+    //     unsigned int str_addr_B = 0;
+
+    //     // if (!cache_hit)
+    //     // {
+    //     // C++;
+
+    //     if (addr_B == last_address)
+    //         return;
+    //     last_address = addr_B;
+
+    //     total_access++;
+
+    // #ifdef DEBUG
+    //     std::cout << "**Trigger " << std::hex << addr_B << " with key " << std::hex << key << std::endl;
+    // #endif
+    //     bool str_addr_B_exists = isb.oci.get_structural_address(addr_B, str_addr_B);
+    //     if (str_addr_B_exists)
+    //     {
+    //         // D++;
+    //         str_addr_exists++;
+    //         // if (gs_selected)
+    //         // {
+    //         meta_counter[cpu][4]++;
+    //         // canary++;
+    //         // cout << "IP: " << ip << " Addr: " << addr_B << "\n";
+    //         total_count[cpu]++;
+    //         uint num_prefetched = 0; // local count of number of prefetches made
+    //         // if (prefetch_degree[cpu][5] > 3)
+    //         // {
+    //         //     prefetch_degree[cpu][5] = 3;
+    //         // }
+
+    //         vector<uint64_t> candidates = isb.isb_predict(addr_B, str_addr_B, ip, prefetch_degree[cpu][5]);
+
+    //         trackers_l1[cpu][index].pref_type = IA_TYPE;
+    //         for (unsigned int i = 0; i < candidates.size(); i++)
+    //         {
+    //             metadata = encode_metadata(0, IA_TYPE, spec_nl[cpu]);
+    //             bl_index = hash_bloom(candidates[i]);
+    //             stats[cpu][IA_TYPE].bl_request[bl_index] = 1;
+    // #ifdef DO_PREF
+    //             int found_in_filter = 0;
+    //             for (int j = 0; j < recent_request_filter.size(); j++)
+    //             {
+    //                 if (recent_request_filter[j] == ((candidates[i] >> 6) & RR_TAG_MASK))
+    //                 {
+    //                     // Prefetch address is present in RR filter
+    //                     found_in_filter = 1;
+    //                 }
+    //             }
+    //             stats[cpu][IA_TYPE].prefetch_reqs++;
+    //             // Issue prefetch request only if prefetch address is not present in RR filter
+    //             if (found_in_filter == 0)
+    //             {
+    //                 // auto conf = isb.oci.get_confidence(candidates[i]);
+    //                 // if (conf == 3)
+    //                 // {
+    //                 // cout << "Key (PC): " << hex << key << " Trigger physical address: " << hex << addr_B << " structural address: " << hex << str_addr_B << " prefetch target: " << hex << candidates[i] << "\n";
+    //                 int ret = prefetch_line(ip, addr, candidates[i], FILL_L1, metadata);
+    //                 if (ret == 1)
+    //                 {
+    //                     predictions++;
+    //                     num_prefetched++;
+    //                     num_prefs++;
+    //                 }
+    //                 recent_request_filter.push_back((candidates[i] >> 6) & RR_TAG_MASK);
+    //                 if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
+    //                     recent_request_filter.erase(recent_request_filter.begin());
+
+    //                 if (num_prefetched >= prefetch_degree[cpu][5])
+    //                     break;
+    //                 // }
+    //             }
+    //             else
+    //             {
+    //                 stats[cpu][IA_TYPE].reqs_filtered_out++;
+    //             }
+    // #endif
+    //         }
+    //         // }
+
+    //         // cout << " isb selected. Flag: " << flag << endl;
+    //     }
+    //     else
+    //     {
+    //         no_prediction++;
+    //         // cout << "Key (PC): " << hex << key << " Trigger physical address: " << hex << addr_B << " structural address: " << 0 << "\n";
+    //     }
+    //     // }
+    //     // if (!cache_hit)
+    //     // {
+    //     unsigned int str_addr_A;
+    //     uint64_t addr_A;
+
+    //     if (isb.access_training_unit(key, addr_A, str_addr_A, addr_B))
+    //     {
+    //         // E++;
+    // #ifdef DEBUG
+    //         std::cout << "Consider pair " << str_addr_A << " and " << addr_B << " with key as " << key << std::endl;
+    // #endif
+    //         if (str_addr_A == 0)
+    //         { // TBD, when is this condition true? When this is the 2nd access to the pc
+    //             str_addr_A = isb.assign_structural_addr(key);
+    //             isb.oci.update(addr_A, str_addr_A);
+    //         }
+    //         str_addr_B = isb.isb_train(key, str_addr_A, addr_B);
+    //     }
+
+    //     isb.update_training_unit(key, addr_B, str_addr_B);
+    //     // }
+
+    if (trackers_l1[cpu][index].ip_tag == ip_tag && stride != 0)
+    {
+
+        // if no prefetches are issued till now, speculatively issue a next_line prefetch
+        if (num_prefs == 0 && spec_nl[cpu] == 1)
+        {
+            if (flag_nl[cpu] == 0)
+                flag_nl[cpu] = 1;
+            else
+            {
+                uint64_t pf_address = ((addr >> LOG2_BLOCK_SIZE) + 1) << LOG2_BLOCK_SIZE;
+                if ((pf_address >> LOG2_PAGE_SIZE) != (addr >> LOG2_PAGE_SIZE))
+                {
+                    // update the IP table entries and return if NL request is not to the same 4 KB page
+                    trackers_l1[cpu][index].last_line_offset = line_offset;
+                    trackers_l1[cpu][index].last_vpage = curr_page;
+                    return;
+                }
+                bl_index = hash_bloom(pf_address);
+                stats[cpu][NL_TYPE].bl_request[bl_index] = 1;
+                metadata = encode_metadata(1, NL_TYPE, spec_nl[cpu]);
+#ifdef DO_PREF
+                int found_in_filter = 0;
+                stats[cpu][NL_TYPE].prefetch_reqs++;
+                for (int i = 0; i < recent_request_filter.size(); i++)
+                {
+                    if (recent_request_filter[i] == ((pf_address >> 6) & RR_TAG_MASK))
+                    {
+                        // Prefetch address is present in RR filter
+                        found_in_filter = 1;
+                        break;
+                    }
+                }
+                // Issue prefetch request only if prefetch address is not present in RR filter
+                if (found_in_filter == 0)
+                {
+                    prefetch_line(ip, addr, pf_address, FILL_L1, metadata);
+                    // Add to RR filter
+                    recent_request_filter.push_back((pf_address >> 6) & RR_TAG_MASK);
+                    if (recent_request_filter.size() > NUM_OF_RR_ENTRIES)
+                        recent_request_filter.erase(recent_request_filter.begin());
+                }
+                else
+                {
+                    stats[cpu][NL_TYPE].reqs_filtered_out++;
+                }
+#endif
+                trackers_l1[cpu][index].pref_type = NL_TYPE;
+                meta_counter[cpu][3]++;
+                total_count[cpu]++;
+                SIG_DP(cout << "1, ");
+
+                if (acc[cpu][4] < 40)
+                    flag_nl[cpu] = 0;
+
+                // cout << " next line selected. Flag: " << flag << endl;
+            } // NL IP
+        }
+    }
     SIG_DP(cout << endl);
 
-    // update the IP table entries
-    trackers_l1[cpu][index].last_line_offset = line_offset;
-    trackers_l1[cpu][index].last_vpage = curr_page;
-    end_c++;
+    // G++;
     return;
 }
 
@@ -1530,14 +1576,13 @@ void CACHE::l1d_prefetcher_final_stats()
     cout << endl;
 
     cout << "ISB: " << endl;
-    cout << "ISB: pref operate called" << access_cnt << endl;
-    cout << "ISB: load ip seen" << load_ip << endl;
-    cout << "ISB: cache miss" << cache_miss << endl;
-    cout << "ISB: second time ip" << second_time_ip << endl;
-    cout << "ISB: current addr not equals last addr" << current_not_equals_last_address << endl;
-    cout << "ISB: non zero stride" << non_zero_stride << endl;
-    cout << "ISB: access training unit" << access_TU << endl;
-    cout << "ISB: end_c" << end_c << endl;
+    // cout << "ISB: pref operate called:" << A << endl;
+    // cout << "ISB: second time ip:" << B << endl;
+    // cout << "ISB: cache miss:" << C << endl;
+    // cout << "ISB: structural addr exists:" << D << endl;
+    // cout << "ISB: access_TU:" << E << endl;
+    // cout << "ISB: non zero stride:" << F << endl;
+    // cout << "ISB: end_c:" << G << endl;
     cout << "ISB:total access:" << total_access << endl;
     cout << "ISB:times selected:" << meta_counter[cpu][4] << endl;
     cout << "ISB:canary counter:" << canary << endl;
@@ -1552,7 +1597,7 @@ void CACHE::l1d_prefetcher_final_stats()
 
     cout << "ISB:Stream end: " << stream_end << endl;
     cout << "ISB:No Prediction: " << no_prediction << " " << 100 * (double)no_prediction / (double)total_access << endl;
-    cout << "ISB:No translation: " << no_translation << " " << 100 * (double)no_translation / (double)total_access << endl;
+    cout << "ISB:No translation: " << no_translation << endl;
     cout << "ISB:Predictions: " << predictions << " " << 100 * (double)predictions / (double)total_access << endl;
 
     cout << endl;
@@ -1568,6 +1613,7 @@ void CACHE::l1d_prefetcher_final_stats()
     cout << "NL:misses_by_poll: " << stats[cpu][4].polluted_misses << endl;
     cout << endl;
 
+    cout << "Coverage: " << (100.0 * pf_useful) / (pf_useful + sim_miss[cpu][LOAD]) << endl;
     cout << "total selections: " << total_count[cpu] << endl;
     cout << "total_filled: " << pf_fill << endl;
     cout << "total_useful: " << pf_useful << endl;
@@ -1579,4 +1625,27 @@ void CACHE::l1d_prefetcher_final_stats()
     cout << endl;
 
     cout << "test: " << test << endl;
+
+    printf("ISB Prefetcher final stats\n");
+    printf("Prefetcher final stats\n");
+    cout << "Training Unit Size: " << isb.training_unit.size() << endl;
+    cout << "Addr table size: " << isb.oci.ps_map.size() << " " << isb.oci.sp_map.size() << endl;
+    cout << "Triggers: " << total_access << endl;
+    cout << "Structural address exists: " << str_addr_exists << " " << 100 * (double)str_addr_exists / (double)total_access << endl;
+    cout << "No Prediction: " << no_prediction << " " << 100 * (double)no_prediction / (double)total_access << endl;
+    cout << "Prefetches issued: " << predictions << " " << 100 * (double)predictions / (double)total_access << endl;
+    cout << "Stream end: " << stream_end << endl;
+    cout << "No translation: " << no_translation << endl;
+    cout << "%Stream divergence: " << isb.stream_divergence_count << " " << 100 * (double)(isb.stream_divergence_count) / (total_access) << endl;
+    cout << "Stream divergence -- new stream: " << isb.stream_divergence_new_stream << endl;
+
+    cout << "A: " << A << endl;
+    cout << "B: " << B << endl;
+    cout << "C: " << C << endl;
+    cout << "D: " << D << endl;
+    cout << "E: " << E << endl;
+    cout << "F: " << F << endl;
+    cout << "G: " << G << endl;
+    // cout << "--------------------------Training unit table ------------------------\n";
+    // isb.print_table();
 }

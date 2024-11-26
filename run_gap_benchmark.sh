@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Check if the user provided a command-line argument
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 {baseline|isb|ipcp}"
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 {baseline|isb-l1|isb-l2|ipcp-l1|ipcp-l2|ipcp-l1-l2|ipcp-isb} <tag>"
     exit 1
 fi
 
@@ -40,8 +40,8 @@ exec_dir="./bin"
 trace_dir="./traces/GAP/SUBSET"
 
 # Output directory for log files (optional: create it if it doesn't exist)
-output_dir="./logs"
-mkdir -p "$output_dir"
+output_dir="."
+# mkdir -p "$output_dir"
 
 # Iterate over all traces in the trace directory
 for trace in "$trace_dir"/*.gz; do
@@ -49,7 +49,10 @@ for trace in "$trace_dir"/*.gz; do
     trace_name=$(basename "$trace" .trace.gz)
     
     # Run the executable on the trace and redirect output to the log file
-    ./$exec_dir/$executable -warmup_instructions 50000000 -simulation_instructions 100000000 -traces "$trace" > "$output_dir/${trace_name}-$1.log"
+    ./$exec_dir/$executable -warmup_instructions 50000000 -simulation_instructions 50000000 -traces "$trace" > "$output_dir/${trace_name}-$1-$2.log" &
     
-    echo "Finished processing $trace_name with $1 prefetcher"
+    #echo "Finished processing $trace_name with $1 prefetcher"
 done
+
+wait
+echo "Done"

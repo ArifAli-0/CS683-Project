@@ -396,6 +396,7 @@ void CACHE::l1d_prefetcher_cache_fill(uint64_t v_addr, uint64_t addr, uint32_t s
 void CACHE::l1d_prefetcher_final_stats()
 {
     printf("Prefetcher final stats\n");
+    cout << "Coverage: " << (100.0 * pf_useful) / (pf_useful + sim_miss[cpu][LOAD]) << endl;
     cout << "Training Unit Size: " << isb.training_unit.size() << endl;
     cout << "Addr table size: " << isb.oci.ps_map.size() << " " << isb.oci.sp_map.size() << endl;
     ;

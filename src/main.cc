@@ -473,6 +473,8 @@ void reset_cache_stats(uint32_t cpu, CACHE *cache)
     cache->PQ.TO_CACHE = 0;
     cache->PQ.FORWARD = 0;
     cache->PQ.FULL = 0;
+
+    
 }
 
 void finish_warmup()
