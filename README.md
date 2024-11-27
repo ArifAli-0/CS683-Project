@@ -1,108 +1,130 @@
-
-# CS683 Final Course Project
+# CS683 Final Course Project: Improving IPCP with Irregular Access Support using ISB
 
 ## Project Proposal
 
-The project aims to extend the Instruction Pointer Classifier-based Prefetcher (IPCP) from the paper "Bouquet of Instruction Pointers: Instruction Pointer Classifier-based Hardware Prefetching" by integrating a new prefetcher to the bouquet for irregular memory access patterns. Specifically, we propose to incorporate the Irregular Stream Buffer (ISB), which was introduced in "Linearizing Irregular Memory Accesses for Improved Correlated Prefetching".  
+The project aims to extend the Instruction Pointer Classifier-based Prefetcher (**IPCP**) from the paper *"Bouquet of Instruction Pointers: Instruction Pointer Classifier-based Hardware Prefetching"* by integrating a new prefetcher to the bouquet for irregular memory access patterns. Specifically, we propose to incorporate the Irregular Stream Buffer (**ISB**), which was introduced in *"Linearizing Irregular Memory Accesses for Improved Correlated Prefetching"*.  
 
 IPCP currently classifies instruction pointers into three categories: CS (Constant Stride), CPLX (Complex Patterns), and GS (Global Stride), each designed to handle regular access patterns efficiently. However, IPCP does not address the challenge of irregular memory access patterns effectively. Our objective is to introduce a new class called Irregular Access (IA) within the IPCP framework, targeting irregular accesses where existing classifications fall short.  
 
-By integrating the ISB into IPCP and defining a new IA class, we aim to improve prefetching for workloads with irregular memory access patterns. This approach is particularly relevant for applications such as graph processing, where irregular accesses dominate and are not captured well by traditional prefetching techniques. The project will evaluate the performance of the modified IPCP on the GAP and memory intensive SPECCPU2017 benchmarks. The metrics for evaluation include speedup and MPKI compared to both no prefetching and the original IPCP, as well as the coverage and accuracy of the modified IPCP. Additionally, we will assess the contribution of each class (CS, CPLX, GS, IA) to the overall coverage, class priority, and class utility (both individual and combined).  
+By integrating the ISB into IPCP and defining a new IA class, we aim to improve prefetching for workloads with irregular memory access patterns. This approach is particularly relevant for applications such as graph processing, where irregular accesses dominate and are not captured well by traditional prefetching techniques.  
 
-### Related works (Any two to three papers appeared in top conferences)
+The project evaluates the modified IPCP on the memory-intensive **SPECCPU2017** benchmarks. Evaluation metrics include **speedup**, **MPKI**, **coverage**, and **accuracy** compared to both the original IPCP and original ISB. Additionally, the project assesses per-class contributions (CS, CPLX, GS, IA), class priority, and utility (individual and combined).  
 
-1. Bouquet of Instruction Pointers: Instruction Pointer Classifier-based Hardware Prefetching, ISCA '20
-
-2. Linearizing Irregular Memory Accesses for Improved Correlated Prefetching, MICRO '13
-
-### What tools, simulators, benchmarks will you use?
-
-We will use ChampSim, to implement and evaluate the extended IPCP prefetcher with the new Irregular Access (IA) class. For benchmarks, we will use the GAP Benchmark Suite to test performance on irregular memory access workloads and memory-intensive benchmarks from SPECCPU2017 to evaluate general memory-bound scenarios.
-
-Provide deliverables for next three checkpoints: Checkpint-1: October 20, Checkpoint-2: November 8, Checkpoint-3: November end (as per academic calendar):
-
-Checkpoint-1 (October 26):
-
-1. Complete the design and planning for the Irregular Access (IA) class extension in IPCP.
-2. Implement the initial integration of the Irregular Stream Buffer (ISB) and IPCP in ChampSim.
-
-Checkpoint-2 (November 10):
-
-1. Complete the integration of ISB into IPCP, ensuring proper classification of instruction pointers for irregular accesses.
-2. Conduct initial performance evaluation using the GAP Benchmark Suite.
-3. Analyze basic metrics like MPKI, coverage, and accuracy, comparing results against baseline IPCP and no prefetching.
-
-Checkpoint-3 (November 26):
-
-1. Finalize testing with both GAP Benchmark Suite and memory-intensive SPECCPU2017 benchmarks.
-2. Complete analysis of speedup, MPKI, coverage, accuracy, class priority, and class utility for the extended IPCP.
-3. Prepare the final report, summarizing findings over baseline IPCP.
-
-### Who will do what? Please spell out a tentative division of labor
-
-Sm Arif Ali:
-
-1. Work on the design and planning for the new Irregular Access (IA) class within the IPCP framework.
-2. Implement the integration of the Irregular Stream Buffer (ISB) and IPCP in ChampSim.
-3. Perform initial performance evaluation and data collection using the GAP Benchmark Suite.
-
-Soumik Dutta:
-
-1. Focus on benchmarking, setting up the SPECCPU2017 and GAP workloads.
-2. Assist in refining the classification logic for the IA class and validating the prefetching mechanism.
-3. Analysis of results, including speedup, MPKI, coverage, accuracy, and class utility.
-
-Both members will collaborate on testing, debugging, and preparing the final report and presentation.
-
---
-
-## Checkpoint-1 Updates (October 24, 2024)
-
-**Work done so far:**
-
-- Integrated IPCP and ISB separately in ChampSim.
-- Configured and executed GAP and SPEC-CPU benchmarks separately.
-- Initial integration of ISB within the IPCP framework completed, with early test results.
-
-**Initial Test Results:**
-
-- **SPEC-CPU17:** Combined IPCP-ISB shows comparable performance to individual IPCP and ISB. No significant performance gain observed, but no degradation either.
-- **GAP:** Combined IPCP-ISB shows degradation of performance compared to individual IPCP and ISB, indicating a need for further tuning and parameter adjustments.
-
-**Plan for Checkpoint-II:**
-
-- Implement confidence counter to influence prefetch decision in ISB (Soumik).
-- Adapt the prefetch degree in ISB based on accuracy (Soumik).
-- Share the IPCP IP-Table with ISB (Arif).
-- Adjust ISB parameters: lookahead distance, buffer size, and stream length (Arif).
-- Refine classification logic for the new Irregular Access (IA) class through brainstorming sessions.
-  
 ---
 
-## Checkpoint-2 Updates (November 10, 2024)
+## Related Works (Top Conference Papers)
 
+1. *Bouquet of Instruction Pointers: Instruction Pointer Classifier-based Hardware Prefetching*, ISCA '20
+2. *Linearizing Irregular Memory Accesses for Improved Correlated Prefetching*, MICRO '13  
 
-components:
-branch
-inc
-prefetcher - code changed here, files changed - ipcp_isbv1.l1d_pref, ipcp_isbv2.l1d_pref,ipcp_isbv3.l1d_pref
-replacement
-src
-tracer
-Makefile
-build_champsim.sh
-LICENSE
-.gitignore
-Above all are champsim files
----------------------------------
-Custom files
-graphs - contains some graph images
-logs - mega folder containing v1, v2, v3 logs
-plotter - python notebooks to plot ipc, class contribution, mpki, accuracy, coverage based on logs present in logs folder
-Related docs - pdf of readme
-run_scripts - helper bash scripts for running different prefetcher on different traces
-----------------------------------
-Building
-./build_champsim.sh <l1d-prefetcher-name> <l2-prefetcher-name> <core>
-the above will create an executable in bin named "l1d-prefetcher-name_l2-prefetcher-name_core"
-./bin/l1d-prefetcher-name_l2-prefetcher-name_core -warmup_instructions 50000000 -simulation_instructions 50000000 -traces "./traces/SPEC-CPU2017/<trace_name>.champsimtrace.xz" > "<tracename>.log"
+---
+
+## Tools, Simulators, Benchmarks
+
+### Tools and Simulators
+
+- **ChampSim**: A cycle-accurate simulator for evaluating hardware prefetchers.
+  
+### Benchmarks
+
+- **GAP Benchmark Suite**: Evaluates irregular memory access workloads.
+- **SPECCPU2017**: Tests general memory-bound scenarios with diverse workloads.
+
+---
+
+## Deliverables for Checkpoints
+
+### Checkpoint-1 (October 26)
+
+1. Complete design and planning for the Irregular Access (IA) class extension in IPCP.
+2. Implement initial integration of ISB into IPCP in ChampSim.
+
+### Checkpoint-2 (November 10)
+
+1. Integrate ISB fully into IPCP, ensuring classification of irregular accesses.
+2. Conduct initial performance evaluation using the GAP Benchmark Suite.
+3. Analyze metrics such as MPKI, coverage, and accuracy, comparing against baseline IPCP.
+
+### Checkpoint-3 (November 26)
+
+1. Finalize testing using GAP Benchmark Suite and SPECCPU2017.
+2. Complete performance analysis (speedup, MPKI, coverage, accuracy, class utility).
+3. Prepare the final report and presentation summarizing findings.
+
+---
+
+## Work Updates
+
+### Checkpoint-1 Updates
+
+- Integrated IPCP and ISB separately in ChampSim.
+- Configured and executed GAP and SPECCPU2017 benchmarks.
+- Early integration of ISB within IPCP yielded no significant performance gain but showed potential for refinement.
+
+### Checkpoint-2 Updates
+
+- Refined classification logic for the IA class.
+- Added accuracy-based prefetch degree adaptation and shared metadata via IPCP IP-Table (not beneficial).
+- Observed performance improvements in combined IPCP-ISB configurations with exceptions for specific benchmarks like *omnetpp*.
+
+### Checkpoint-3 Updates
+
+- Evaluated multiple configurations to refine classification logic.
+- Achieved optimal IPCP class design with ISB, balancing performance across *gcc* and *omnetpp* benchmarks.
+- Final version demonstrated:
+  - Improved accuracy and coverage compared to standalone IPCP and ISB.
+  - Significant MPKI reduction, leveraging dynamic utilization of prefetcher classes.
+
+---
+
+## Insights and Future Work
+
+### Key Insights
+
+- IPCP effectively handles regular access patterns.
+- ISB excels in managing irregular memory access streams.
+- The combined IPCP_ISB prefetcher synergizes both, achieving reduced MPKI and better overall performance.
+
+### Future Work
+
+1. Minimize the storage footprint of ISB’s address reference stream.
+2. Test across a wider variety of benchmarks to evaluate scalability and robustness.
+
+---
+
+## Code and Execution
+
+### Codebase Structure
+
+- **Modified code Components**: `prefetcher/ipcp_isbv1.l1d_pref`, `prefetcher/ipcp_isbv2.l1d`,_`prefetcher/pref,ipcp_isbv3.l1d_pref`
+- **Other Components**:
+  - `graphs`: Graphs and visualizations.
+  - `logs`: Logs for V1, V2, and V3 configurations.
+  - `plotter`: Python notebooks for visualizing IPC, MPKI, accuracy, and coverage metrics.
+  - `run_scripts`: Bash scripts for running prefetchers on various traces.
+
+### Building and Running
+
+1. **Build**: `./build_champsim.sh <l1d-prefetcher-name> <l2-prefetcher-name> <core>`
+   - Generates a binary in `bin/`.
+2. **Run**:
+
+   ```bash
+   ./bin/<binary-name> -warmup_instructions 50000000 -simulation_instructions 50000000 \
+   -traces "./traces/SPEC-CPU2017/<trace_name>.champsimtrace.xz" > "<trace_name>.log"
+   ```
+
+---
+
+## Resources
+
+### Repository
+
+- [GitHub Link](https://github.com/ArifAli-0/CS683-Project.git)
+- [Fork](https://github.com/sammagnet7/CS683_AdvCompArch_Project.git)
+
+### Video Demonstrations
+
+1. [Checkpoint 1](https://youtu.be/JrZYAXMjjzY)
+2. [Checkpoint 2](https://youtu.be/AmGMXzYUihc)
+3. [Checkpoint 3](https://youtu.be/CuVzCN3LcRc)
