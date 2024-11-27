@@ -80,3 +80,29 @@ Both members will collaborate on testing, debugging, and preparing the final rep
 ---
 
 ## Checkpoint-2 Updates (November 10, 2024)
+
+
+components:
+branch
+inc
+prefetcher - code changed here, files changed - ipcp_isbv1.l1d_pref, ipcp_isbv2.l1d_pref,ipcp_isbv3.l1d_pref
+replacement
+src
+tracer
+Makefile
+build_champsim.sh
+LICENSE
+.gitignore
+Above all are champsim files
+---------------------------------
+Custom files
+graphs - contains some graph images
+logs - mega folder containing v1, v2, v3 logs
+plotter - python notebooks to plot ipc, class contribution, mpki, accuracy, coverage based on logs present in logs folder
+Related docs - pdf of readme
+run_scripts - helper bash scripts for running different prefetcher on different traces
+----------------------------------
+Building
+./build_champsim.sh <l1d-prefetcher-name> <l2-prefetcher-name> <core>
+the above will create an executable in bin named "l1d-prefetcher-name_l2-prefetcher-name_core"
+./bin/l1d-prefetcher-name_l2-prefetcher-name_core -warmup_instructions 50000000 -simulation_instructions 50000000 -traces "./traces/SPEC-CPU2017/<trace_name>.champsimtrace.xz" > "<tracename>.log"
